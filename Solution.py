@@ -65,6 +65,7 @@ def deleteQuery(query: Query) -> ReturnValue:  ##
 
 
 def addDisk(disk: Disk) -> ReturnValue:
+    #TODO:
     return ReturnValue.OK
 
 
