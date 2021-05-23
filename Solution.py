@@ -41,11 +41,11 @@ def createTables():
                      "FOREIGN KEY(Did) REFERENCES Disk(Did) ON DELETE CASCADE,"
                      "check(size>0),"
                      "check (Cost>0));")  # maybe we should creat ramToQuery also
-        conn.execute("CREATE TABLE QueryToRam(Qid INTEGER PRIMARY KEY ,"
+        conn.execute("CREATE TABLE RamToDisk(Did INTEGER PRIMARY KEY ,"
                      "Rid INTEGER PRIMARY KEY ,"
-                     "Qsize INTEGER NOT NULL,"
+                     "Dsize INTEGER NOT NULL,"
                      "Cost INTEGER NOT NULL,"
-                     "FOREIGN KEY (Qid) REFERENCES Queries(Qid) ON DELETE CASCADE ,"
+                     "FOREIGN KEY (Did) REFERENCES Disk(Did) ON DELETE CASCADE ,"
                      "FOREIGN KEY(Rid) REFERENCES Ram(Rid) ON DELETE CASCADE,"
                      "check(size>0),"
                      "check (Cost>0));")
