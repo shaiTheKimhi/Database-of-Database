@@ -22,7 +22,7 @@ def createTables():
         conn.execute("CREATE TABLE Disk(Did INTEGER PRIMARY KEY,"
                      "company TEXT NOT NULL,"
                      "Speed INTEGER NOT NULL, "
-                     "Dspace INTEGER NOT NULL,"
+                     "Dspace INTEGER NOT NULL," #instead of space in disk, we will get space only on query on Disk and QueryToDisk
                      " Cost INTEGER NOT NULL,"
                      "check (Did>0),"
                      "check(Speed>0),"
@@ -35,8 +35,8 @@ def createTables():
                      "check (Size>0));")
         conn.execute("CREATE TABLE QueryToDisk(Qid INTEGER PRIMARY KEY ,"
                      "Did INTEGER PRIMARY KEY ,"
-                     "Qsize INTEGER NOT NULL,"
-                     "Cost INTEGER NOT NULL,"
+                     "Qsize INTEGER NOT NULL," #this is query size, does not need to keep here
+                     "Cost INTEGER NOT NU`LL,"
                      "FOREIGN KEY (Qid) REFERENCES Queries(Qid) ON DELETE CASCADE ,"
                      "FOREIGN KEY(Did) REFERENCES Disk(Did) ON DELETE CASCADE,"
                      "check(size>0),"
@@ -404,6 +404,8 @@ def addDiskAndQuery(disk: Disk, query: Query) -> ReturnValue:
 
 
 def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
+    
+    
     return ReturnValue.OK
 
 
