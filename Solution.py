@@ -36,7 +36,7 @@ def createTables():
         conn.execute("CREATE TABLE QueryToDisk(Qid INTEGER PRIMARY KEY ,"
                      "Did INTEGER PRIMARY KEY ,"
                      "Qsize INTEGER NOT NULL," #this is query size, does not need to keep here
-                     "Cost INTEGER NOT NU`LL,"
+                     "Cost INTEGER NOT NU`LL," #does not understand why to keep?????
                      "FOREIGN KEY (Qid) REFERENCES Queries(Qid) ON DELETE CASCADE ,"
                      "FOREIGN KEY(Did) REFERENCES Disk(Did) ON DELETE CASCADE,"
                      "check(size>0),"
@@ -376,7 +376,7 @@ def addDiskAndQuery(disk: Disk, query: Query) -> ReturnValue:
         return ReturnValue.BAD_PARAMS
     try:
         conn = Connector.DBConnector()
-        query = sql.SQL("BEGIN; INSERT INTO Queries(Qid, Purpose, Qsize) VALUES ({Id}, {purpose}, {Qsize});"
+        query = sql.SQL(f"BEGIN; INSERT INTO Queries(Qid, Purpose, Qsize) VALUES ({Id}, {purpose}, {Qsize});"
                         "INSERT INTO Disk(Did, Company,Speed, Dspace, Cost) VALUES ({D_id},"
                         " {company},{speed},{d_space},{cost});COMMIT;")
         rows_effected, _ = conn.execute(query)
@@ -404,9 +404,36 @@ def addDiskAndQuery(disk: Disk, query: Query) -> ReturnValue:
 
 
 def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
+    Qid = query.getQueryID()
+    size = query.getSize()
+    if (type(query) is not Query) or (type(Qid) is not int) or (type(size) is not int) or (type(diskID) is not int):
+        return ReturnValue.BAD_PARAMS
     
-    
-    return ReturnValue.OK
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(f"INSERT INTO QueryToDisk(Qid, Did, Qsize) VALUES ({Qid, size, diskID}) ")
+        rows_effected, _ = conn.execute(query)
+    except DatabaseException.ConnectionInvalid:
+        conn.rollback()
+        return ReturnValue.ERROR
+    except DatabaseException.NOT_NULL_VIOLATION:
+        conn.rollback()
+        return ReturnValue.ERROR
+    except DatabaseException.FOREIGN_KEY_VIOLATION:
+        conn.rollback()
+        return ReturnValue.ERROR
+    except DatabaseException.UNIQUE_VIOLATION:
+        conn.rollback()
+        return ReturnValue.ALREADY_EXISTS
+    except DatabaseException.CHECK_VIOLATION:
+        conn.rollback()
+        return ReturnValue.BAD_PARAMS
+    except Exception:
+        conn.rollback()
+        return ReturnValue.ERROR
+    finally:
+        conn.close()
+        return ReturnValue.OK
 
 
 def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
