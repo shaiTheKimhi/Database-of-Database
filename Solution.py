@@ -411,7 +411,7 @@ def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
     
     try:
         conn = Connector.DBConnector()
-        query = sql.SQL(f"INSERT INTO QueryToDisk(Qid, Did, Qsize) VALUES ({Qid, size, diskID}) ")
+        query = sql.SQL(f"INSERT INTO QueryToDisk(Qid, Did, Qsize) VALUES ({Qid}, {size}, {diskID}) ")
         rows_effected, _ = conn.execute(query)
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
@@ -437,8 +437,36 @@ def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
 
 
 def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
-    return ReturnValue.OK
-
+    Qid = query.getQueryID()
+    if (type(query) is not Query) or (type(Qid) is not int) or (type(diskID) is not int):
+        return ReturnValue.BAD_PARAMS
+        
+        
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(f"DELETE FROM QueryToDisk WHERE (Qid={Qid} AND  Did = {diskID}) ")
+        rows_effected, _ = conn.execute(query)
+    except DatabaseException.ConnectionInvalid:
+        conn.rollback()
+        return ReturnValue.ERROR
+    except DatabaseException.NOT_NULL_VIOLATION:
+        conn.rollback()
+        return ReturnValue.ERROR
+    except DatabaseException.FOREIGN_KEY_VIOLATION:
+        conn.rollback()
+        return ReturnValue.ERROR
+    except DatabaseException.UNIQUE_VIOLATION:
+        conn.rollback()
+        return ReturnValue.ALREADY_EXISTS
+    except DatabaseException.CHECK_VIOLATION:
+        conn.rollback()
+        return ReturnValue.BAD_PARAMS
+    except Exception:
+        conn.rollback()
+        return ReturnValue.ERROR
+    finally:
+        conn.close()
+        return ReturnValue.OK
 
 def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
     return ReturnValue.OK
