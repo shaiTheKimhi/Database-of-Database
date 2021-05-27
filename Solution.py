@@ -42,7 +42,7 @@ def activate(query, kind='delete'):
         conn.close()
         return ReturnValue.OK
         
-def aggregate(query)
+def aggregate(query):
     try:
         conn = Connector.DBConnector()
         rows_effected, output = conn.execute(query)
@@ -189,7 +189,7 @@ def getQueryProfile(queryID: int) -> Query:
     except Exception:
         return Query.badQuery()
     finally:
-        if rows_effected is 0:
+        if rows_effected == 0:
             return Query.badQuery()
         conn.close()
         return result
@@ -292,7 +292,7 @@ def getDiskProfile(diskID: int) -> Disk:
     except Exception:
         return Disk.badDisk()
     finally:
-        if rows_effected is 0:
+        if rows_effected == 0:
             return Disk.badDisk()
         conn.close()
         return result
@@ -320,7 +320,7 @@ def deleteDisk(diskID: int) -> ReturnValue:
         return ReturnValue.ERROR
     finally:
         conn.close()
-        if row_effected is 0:
+        if row_effected == 0:
             return ReturnValue.NOT_EXISTS
         return ReturnValue.OK
 
@@ -376,7 +376,7 @@ def getRAMProfile(ramID: int) -> RAM:
     except Exception:
         return RAM.badRAM()
     finally:
-        if rows_effected is 0:
+        if rows_effected == 0:
             return RAM.badRAM()
         conn.close()
         return result
@@ -403,7 +403,7 @@ def deleteRAM(ramID: int) -> ReturnValue:
     except Exception:
         return ReturnValue.ERROR
     finally:
-        if rows_effected is 0:
+        if rows_effected == 0:
             return ReturnValue.NOT_EXISTS
         conn.close()
         return ReturnValue.OK
@@ -467,7 +467,7 @@ def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
         WHERE usedSpace+{size} <= Dspace\
         GROUP BY Did")
         rows_effected, _ = conn.execute(query)
-        if row_effected = 0:
+        if row_effected == 0:
             return BAD_PARAMS
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
