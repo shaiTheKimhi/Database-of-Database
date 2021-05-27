@@ -35,7 +35,7 @@ def createTables():
                      "check (Size>0));")
         conn.execute("CREATE TABLE QueryToDisk(Qid INTEGER PRIMARY KEY ,"
                      "Did INTEGER PRIMARY KEY ,"
-                     "Qsize INTEGER NOT NULL," #this is query size, does not need to keep here
+                     "Qsize INTEGER NOT NULL," #this is query size, is not necessary to keep here, we will prefer to keep total disk avaliable space over here
                      "Cost INTEGER NOT NU`LL," #does not understand why to keep?????
                      "FOREIGN KEY (Qid) REFERENCES Queries(Qid) ON DELETE CASCADE ,"
                      "FOREIGN KEY(Did) REFERENCES Disk(Did) ON DELETE CASCADE,"
@@ -411,8 +411,14 @@ def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
     
     try:
         conn = Connector.DBConnector()
-        query = sql.SQL(f"INSERT INTO QueryToDisk(Qid, Did, Qsize) VALUES ({Qid}, {size}, {diskID}) ")
+        query = sql.SQL(f"INSERT INTO QueryToDisk(Qid, Did, Qsize) VALUES ({Qid}, {size}, {diskID})\
+        SELECT (Qid, Did, Dspace, sum(Qsize) as usedSpace)\
+        FROM QueryToDisk INNER JOIN Disk ON (Disk.Did = QueryToDisk.Did)\
+        WHERE usedSpace+{size} <= Dspace\
+        GROUP BY Did")
         rows_effected, _ = conn.execute(query)
+        if row_effected = 0:
+            return BAD_PARAMS
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
         return ReturnValue.ERROR
@@ -444,7 +450,7 @@ def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
         
     try:
         conn = Connector.DBConnector()
-        query = sql.SQL(f"DELETE FROM QueryToDisk WHERE (Qid={Qid} AND  Did = {diskID}) ")
+        query = sql.SQL(f"DELETE FROM QueryToDisk WHERE (Qid={Qid} AND  Did = {diskID})")
         rows_effected, _ = conn.execute(query)
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
