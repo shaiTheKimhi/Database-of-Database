@@ -8,6 +8,54 @@ from Business.RAM import RAM
 from Business.Disk import Disk
 from psycopg2 import sql
 
+def activate(query, kind='delete'):
+    try:
+        conn = Connector.DBConnector()
+        rows_effected, _ = conn.execute(query)
+    except DatabaseException.ConnectionInvalid:
+        conn.rollback()
+        conn.close()
+        return ReturnValue.ERROR
+    except DatabaseException.NOT_NULL_VIOLATION:
+        conn.rollback()
+        conn.close()
+        return ReturnValue.ERROR
+    except DatabaseException.FOREIGN_KEY_VIOLATION:
+        conn.rollback()
+        conn.close()
+        return ReturnValue.ERROR
+    except DatabaseException.UNIQUE_VIOLATION:
+        conn.rollback()
+        conn.close()
+        return ReturnValue.ERROR
+    except DatabaseException.CHECK_VIOLATION:
+        conn.rollback()
+        conn.close()
+        return ReturnValue.ERROR
+    except Exception:
+        conn.rollback()
+        conn.close()
+        return ReturnValue.ERROR
+    finally:
+        if row_effected == 0:
+            return ReturnValue.NOT_EXISTS if kind == 'delete' else ReturnValue.OK
+        conn.close()
+        return ReturnValue.OK
+        
+def aggregate(query)
+    try:
+        conn = Connector.DBConnector()
+        rows_effected, output = conn.execute(query)
+    except Exception:
+        conn.rollback()
+        conn.close()
+        return -1
+    finally:
+        if row_effected == 0:
+            return 0
+        conn.close()
+        return output
+
 
 # maybe we should replace the prints at the expects
 def createTables():
@@ -22,7 +70,7 @@ def createTables():
         conn.execute("CREATE TABLE Disk(Did INTEGER PRIMARY KEY,\
                      company TEXT NOT NULL,\
                      Speed INTEGER NOT NULL, \
-                      Cost INTEGER NOT NULL,\
+                     Cost INTEGER NOT NULL,\
                      check (Did>0),\
                      check(Speed>0),\
                      check (Cost>0));")
@@ -30,21 +78,19 @@ def createTables():
                      Company TEXT NOT NULL, \
                      Rspace INTEGER NOT NULL,\
                      check(Rid>0),\
-                     check (Size>0));")
+                     check (Rspace>0));")
         conn.execute("CREATE TABLE QueryToDisk(Qid INTEGER PRIMARY KEY ,\
-                     Did INTEGER PRIMARY KEY ,\
+                     Did INTEGER ,\
                      Qsize INTEGER NOT NULL,\
                      FOREIGN KEY (Qid) REFERENCES Queries(Qid) ON DELETE CASCADE ,\
                      FOREIGN KEY(Did) REFERENCES Disk(Did) ON DELETE CASCADE,\
-                     check(size>0);")  # maybe we should creat ramToQuery also
-        conn.execute("CREATE TABLE RamToDisk(Did INTEGER PRIMARY KEY ,\
-                     Rid INTEGER PRIMARY KEY ,\
-                     Dsize INTEGER NOT NULL,\
-                     Cost INTEGER NOT NULL,\
+                     check(Qsize>0);")  # maybe we should creat ramToQuery also
+        conn.execute("CREATE TABLE RamToDisk(Rid INTEGER PRIMARY KEY ,\
+                     Did INTEGER,\
+                     Rsize INTEGER\
                      FOREIGN KEY (Did) REFERENCES Disk(Did) ON DELETE CASCADE ,\
                      FOREIGN KEY(Rid) REFERENCES Ram(Rid) ON DELETE CASCADE,\
-                     check(size>0),\
-                     check (Cost>0));")
+                     check(Rsize>0);")
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
@@ -156,28 +202,36 @@ def deleteQuery(query: Query) -> ReturnValue:
     try:
         conn = Connector.DBConnector()
         Id = query.getQueryID()
-# after the begin and before delete we should add update to disk table ; update to ram table; after find relevant id#
+        #Using Cascade this query should delete all appearances of Query including in 
         query = sql.SQL("BEGIN;DELETE FROM Queries WHERE Qid={Id};COMMIT").format(Qid=sql.Literal(Id))
         rows_effected, _ = conn.execute(query)
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
+        conn.close()
         return ReturnValue.ERROR
     except DatabaseException.NOT_NULL_VIOLATION:
         conn.rollback()
+        conn.close()
         return ReturnValue.ERROR
     except DatabaseException.FOREIGN_KEY_VIOLATION:
         conn.rollback()
+        conn.close()
         return ReturnValue.ERROR
     except DatabaseException.UNIQUE_VIOLATION:
         conn.rollback()
+        conn.close()
         return ReturnValue.ERROR
     except DatabaseException.CHECK_VIOLATION:
         conn.rollback()
+        conn.close()
         return ReturnValue.ERROR
     except Exception:
         conn.rollback()
+        conn.close()
         return ReturnValue.ERROR
     finally:
+        if rows_effected == 0:
+            return ReturnValue.NOT_EXISTS
         conn.close()
         return ReturnValue.OK
 
@@ -471,19 +525,25 @@ def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
         return ReturnValue.OK
 
 def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
-    return ReturnValue.OK
+    if (type(query) is not Query) or (type(Qid) is not int) or (type(diskID) is not int):
+        return ReturnValue.BAD_PARAMS
+        
+    return activate(f"INSERT INTO RamToDisk(Rid, Qid) VALUES ({ramID}, {diskID})")
 
 
 def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
-    return ReturnValue.OK
+    if (type(query) is not Query) or (type(Qid) is not int) or (type(diskID) is not int):
+        return ReturnValue.BAD_PARAMS
+        
+    return activate(f"DELETE FROM RamToDisk WHERE (Rid={ramID} And Did={diskID})")
 
 
 def averageSizeQueriesOnDisk(diskID: int) -> float:
-    return 0
+    return aggregate(f"SELECT avg(Qsize) FROM QueryToDisk WHERE (Did={diskID}) GROUP_BY Did")
 
 
 def diskTotalRAM(diskID: int) -> int:
-    return 0
+    return aggregate(f"SELECT sum(Rsize) FROM RamToDisk WHERE (Did={diskID}) GROUP_BY Did")
 
 
 def getCostForPurpose(purpose: str) -> int:
