@@ -173,8 +173,8 @@ def addQuery(query: Query) -> ReturnValue:
         size = query.getSize()
         if (type(Id) is not int) or (type(purpose) is not str) or (type(size) is not int):
             return ReturnValue.BAD_PARAMS
-        query = sql.SQL("INSERT INTO Queries(Qid, Purpose, Qsize) VALUES ({Id}, {purpose}, {Qsize})").format \
-            (Qid=sql.Literal(Id), Purpose=sql.Literal(purpose), Qsize=sql.Literal(size))
+        
+        query = sql.SQL(f"INSERT INTO Queries(Qid, Purpose, Qsize) VALUES ({Id}, '{purpose}', {size})")
         rows_effected, _ = conn.execute(query)
         conn.commit()
     except DatabaseException.ConnectionInvalid:
@@ -187,7 +187,8 @@ def addQuery(query: Query) -> ReturnValue:
         return_val = ReturnValue.ALREADY_EXISTS
     except DatabaseException.FOREIGN_KEY_VIOLATION:
         return_val = ReturnValue.ERROR
-    except Exception:
+    except Exception as e:
+        print(str(e))
         return_val = ReturnValue.ERROR
     finally:
         conn.close()
@@ -277,10 +278,8 @@ def addDisk(disk: Disk) -> ReturnValue:
         if (type(Id) is not int) or (type(company) is not str) or (type(cost) is not int) \
                 or (type(speed) is not int) or (type(d_space) is not int):
             return ReturnValue.BAD_PARAMS
-        query = sql.SQL("INSERT INTO Disk(Did, Company,Speed, Dspace, Cost) VALUES ({Id},"
-                        " {company},{speed},{d_space},{cost})"). \
-            format(Did=sql.Literal(id), Company=sql.Literal(company),
-                   Speed=sql.Literal(company), Dspace=sql.Literal(d_space), Cost=sql.Literal(cost))
+        query = sql.SQL(f"INSERT INTO Disk(Did, Company,Speed, Dspace, Cost) VALUES ({Id},\
+                         '{company}',{speed},{d_space},{cost})")
         rows_effected, _ = conn.execute(query)
         conn.commit()
     except DatabaseException.ConnectionInvalid:  # no need as e?
@@ -294,6 +293,7 @@ def addDisk(disk: Disk) -> ReturnValue:
     except DatabaseException.FOREIGN_KEY_VIOLATION:
         return_val = ReturnValue.ERROR
     except Exception as e:
+        print(str(e))
         return_val = ReturnValue.ERROR
     finally:
         conn.close()
@@ -364,8 +364,7 @@ def addRAM(ram: RAM) -> ReturnValue:
         r_size = ram.getSize()
         if (type(Id) is not int) or (type(company) is not str) or (type(r_size) is not int):
             return ReturnValue.BAD_PARAMS
-        query = sql.SQL("INSERT INTO Ram(Rid, Company, Rspace) VALUES ({Id}, {company}, {r_size})"). \
-            format(Rid=sql.Literal(id), Company=sql.Literal(company), Rspace=sql.Literal(r_size))
+        query = sql.SQL(f"INSERT INTO Ram(Rid, Company, Rspace) VALUES ({Id}, '{company}', {r_size})")
         rows_effected, _ = conn.execute(query)
         conn.commit()
     except DatabaseException.ConnectionInvalid:
@@ -379,6 +378,7 @@ def addRAM(ram: RAM) -> ReturnValue:
     except DatabaseException.FOREIGN_KEY_VIOLATION:
         return_val = ReturnValue.ERROR
     except Exception:
+        print(str(e))
         return_val = ReturnValue.ERROR
     finally:
         conn.close()
