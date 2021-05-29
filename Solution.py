@@ -75,7 +75,7 @@ def get_rows(query, default_value, error_value):
             nop = 0 #no operation here
         return error_value #error value
     finally:
-        return output
+        return output, rows_effected
     
 
 
@@ -229,7 +229,7 @@ def deleteQuery(query: Query) -> ReturnValue:
         #Using Cascade this query should delete all appearances of Query including in 
         query = f"BEGIN;DELETE FROM Queries WHERE Qid={Id};\
         UPDATE Disk SET Disk.Dspace = Disk.Dspace - t2.QuerySize FROM (Disk INNER JOIN QueryToDisk ON Disk.Did=QueryToDisk.Did) WHERE QueryToDisk.Qid={Id};\
-        COMMIT") #automatically deletes from QueryToDisk and so we only remain to add removed values to Dspace at Disk
+        COMMIT" #automatically deletes from QueryToDisk and so we only remain to add removed values to Dspace at Disk
         rows_effected, _ = conn.execute(query)
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
@@ -569,11 +569,11 @@ def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
 
 
 def averageSizeQueriesOnDisk(diskID: int) -> float:
-    return aggregate(f"SELECT AVG(Qsize) FROM QueryToDisk WHERE (Did={diskID}) GROUP_BY Did")
+    return aggregate(f"SELECT AVG(Qsize) FROM QueryToDisk WHERE (Did={diskID}) GROUP BY Did")
 
 
 def diskTotalRAM(diskID: int) -> int:
-    return aggregate(f"SELECT SUM(Rsize) FROM RamToDisk WHERE (Did={diskID}) GROUP_BY Did")
+    return aggregate(f"SELECT SUM(Rsize) FROM RamToDisk WHERE (Did={diskID}) GROUP BY Did")
 
 
 def getCostForPurpose(purpose: str) -> int:
@@ -584,25 +584,43 @@ def getCostForPurpose(purpose: str) -> int:
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
     return list(get_rows(f"SELECT TOP 5 Queries.Qid FROM Queries WHERE Queries.QSize <= \
-    (SELECT Disk.Dspace WHERE Disk.Did={diskID});"))
+    (SELECT Disk.Dspace WHERE Disk.Did={diskID});")[0])
 
 
 def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
     return list(get_rows(f"SELECT TOP 5 Queries.Qid FROM Queries WHERE (Queries.QSize <= \
-    (SELECT Disk.Dspace WHERE Disk.Did={diskID}) AND Queries.QSize <= (SELECT SUM(RamToDisk.Rsize) FROM RamToDisk WHERE RamToDisk.Did={diskID}));"))
+    (SELECT Disk.Dspace WHERE Disk.Did={diskID}) AND Queries.QSize <= (SELECT SUM(RamToDisk.Rsize) FROM RamToDisk WHERE RamToDisk.Did={diskID}))  ORDER BY Queries.Qid;")[0])
 
 
-def isCompanyExclusive(diskID: int) -> bool:
-    return True
+def isCompanyExclusive(diskID: int) -> bool: 
+    query = f"SELECT * FROM ((Disk INNER JOIN RamToDisk ON Disk.Did=RamToDisk.Did) INNER JOIN RAM ON RamToDisk.Rid=RAM.Rid) WHERE RAM.Company != Disk.Company AND Disk.Did={diskID}"
+    return get_rows(query)[1] == 0 #company of Disk is exlusive iff all of the RAMs attached to it are of the same company i.e there are no RAMs of different company.
 
 
 def getConflictingDisks() -> List[int]:
-    return []
+    query = "SELECT DISTINCT Did FROM QueryToDisk WHERE Qid IN (SELECT Qid,COUNT(Qid) AS cn FROM QueryToDisk GROUP BY Qid HAVING cn > 1)"
+    return list(get_rows(query)[0])
 
 
 def mostAvailableDisks() -> List[int]:
-    return []
+    query = "SELECT Disk.Did FROM \
+    (SELECT TOP 5 Disk.Did, Disk.Speed, COUNT(Qid) AS cqid FROM (Disk, Queries)\
+    WHERE Queries.Qsize <= Disk.Dspace) GROUP BY Disk.Did ORDER BY cqid DESC, Disk.Speed DESC, Disk.Did"
+    return list(get_rows(query)[0])
 
 
 def getCloseQueries(queryID: int) -> List[int]:
-    return []
+    query = f"SELECT TOP 10 Qid FROM \
+    (SELECT Queries.Qid, COUNT(Did) as cnt\
+    FROM Queries INNER JOIN QueryToDisk ON Queries.Qid=QueryToDisk.Qid\
+    WHERE Did IN (SELECT Did FROM QueryToDisk WHERE QueryToDisk.Qid={queryID})\
+    AND Queries.Qid != {queryID}\
+    GROUP BY Queries.Qid \
+    HAVING cnt >= (SELECT Count(Did) FROM QueryToDisk WHERE QueryToDisk.Qid={queryID}))\
+    ORDER BY Queries.Qid"
+    return list(get_rows(query)[0])
+    
+    
+    
+    
+    
