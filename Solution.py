@@ -87,34 +87,36 @@ def createTables():
         conn.execute("CREATE TABLE Queries(Qid INTEGER PRIMARY KEY,\
                      Purpose TEXT NOT NULL,\
                      Qsize INTEGER NOT NULL,\
-                     check(Qid>0),\
+                     check (Qid>0),\
                      check (QSize>0))")
         conn.execute("CREATE TABLE Disk(Did INTEGER PRIMARY KEY,\
                      company TEXT NOT NULL,\
                      Speed INTEGER NOT NULL, \
                      Cost INTEGER NOT NULL,\
-                     Dspace INTEGER NOT NULL\
+                     Dspace INTEGER NOT NULL,\
                      check (Did>0),\
-                     check(Speed>0),\
-                     check (Cost>0));\
-                     check (Dspace>=0)")
+                     check (Speed>0),\
+                     check (Cost>0),\
+                     check (Dspace>=0))")
         conn.execute("CREATE TABLE Ram(Rid INTEGER PRIMARY KEY,\
                      Company TEXT NOT NULL, \
                      Rspace INTEGER NOT NULL,\
-                     check(Rid>0),\
-                     check (Rspace>0));") #TODO: CHECK if Did is PRIMARY KEY OR NOT
-        conn.execute("CREATE TABLE QueryToDisk(Qid INTEGER PRIMARY KEY ,\
-                     Did INTEGER PRIMARY KEY,\
+                     check (Rid>0),\
+                     check (Rspace>0))") #TODO: CHECK if Did is PRIMARY KEY OR NOT
+        conn.execute("CREATE TABLE QueryToDisk(Qid INTEGER ,\
+                     Did INTEGER ,\
                      Qsize INTEGER NOT NULL,\
+                     CONSTRAINT Identity PRIMARY KEY (Qid, Did),\
                      FOREIGN KEY (Qid) REFERENCES Queries(Qid) ON DELETE CASCADE ,\
                      FOREIGN KEY(Did) REFERENCES Disk(Did) ON DELETE CASCADE,\
-                     check(Qsize>0);")  # maybe we should creat ramToQuery also
-        conn.execute("CREATE TABLE RamToDisk(Rid INTEGER PRIMARY KEY ,\
-                     Did INTEGER PRIMARY KEY,\
-                     Rsize INTEGER\
+                     check (Qsize>0))")  # maybe we should creat ramToQuery also
+        conn.execute("CREATE TABLE RamToDisk(Rid INTEGER ,\
+                     Did INTEGER ,\
+                     Rsize INTEGER,\
+                     CONSTRAINT descriptor PRIMARY KEY (Rid, Did), \
                      FOREIGN KEY (Did) REFERENCES Disk(Did) ON DELETE CASCADE ,\
                      FOREIGN KEY(Rid) REFERENCES Ram(Rid) ON DELETE CASCADE,\
-                     check(Rsize>0);")
+                     check (Rsize>0))")
         conn.commit()
         conn.close()
     except DatabaseException.ConnectionInvalid as e:
@@ -143,7 +145,7 @@ def dropTables():
         conn.execute("DROP TABLE IF EXISTS Disk CASCADE")
         conn.execute("DROP TABLE IF EXISTS Ram CASCADE")
         conn.execute("DROP TABLE IF EXISTS QueryToDisk CASCADE")
-        conn.execute("DROP TABLE IF EXISTS QueryToRam CASCADE")
+        conn.execute("DROP TABLE IF EXISTS RamToDisk CASCADE")
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
