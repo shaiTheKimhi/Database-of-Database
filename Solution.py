@@ -23,7 +23,7 @@ def activate(query, kind='delete'):
     except DatabaseException.FOREIGN_KEY_VIOLATION:
         conn.rollback()
         conn.close()
-        return ReturnValue.ERROR
+        return ReturnValue.NOT_EXISTS
     except DatabaseException.UNIQUE_VIOLATION:
         conn.rollback()
         conn.close()
@@ -39,11 +39,11 @@ def activate(query, kind='delete'):
         except:
             nop = 0 #no operation here
         return ReturnValue.ERROR
-    finally:
-        if rows_effected == 0:
-            return ReturnValue.NOT_EXISTS if kind == 'delete' else ReturnValue.OK
-        conn.close()
-        return ReturnValue.OK
+
+    if rows_effected == 0:
+        return ReturnValue.NOT_EXISTS if kind == 'delete' else ReturnValue.OK
+    conn.close()
+    return ReturnValue.OK
         
 def aggregate(query):
     try:
@@ -56,11 +56,11 @@ def aggregate(query):
         except:
             nop = 0 #no operation here
         return -1 #error value
-    finally:
-        if rows_effected == 0:
-            return 0  #default value
-        conn.close()
-        return output.rows[0]
+
+    if rows_effected == 0:
+        return 0  #default value
+    conn.close()
+    return output.rows[0]
         
         
 def get_rows(query, default_value=[], error_value=[]):
@@ -74,8 +74,8 @@ def get_rows(query, default_value=[], error_value=[]):
         except:
             nop = 0 #no operation here
         return error_value #error value
-    finally:
-        return output.rows, rows_effected
+
+    return output.rows, rows_effected
     
 
 
@@ -92,8 +92,8 @@ def createTables():
         conn.execute("CREATE TABLE Disk(Did INTEGER PRIMARY KEY,\
                      company TEXT NOT NULL,\
                      Speed INTEGER NOT NULL, \
-                     Cost INTEGER NOT NULL,\
                      Dspace INTEGER NOT NULL,\
+                     Cost INTEGER NOT NULL,\
                      check (Did>0),\
                      check (Speed>0),\
                      check (Cost>0),\
@@ -109,7 +109,7 @@ def createTables():
                      CONSTRAINT Identity PRIMARY KEY (Qid, Did),\
                      FOREIGN KEY (Qid) REFERENCES Queries(Qid) ON DELETE CASCADE ,\
                      FOREIGN KEY(Did) REFERENCES Disk(Did) ON DELETE CASCADE,\
-                     check (Qsize>0))")  # maybe we should creat ramToQuery also
+                     check (Qsize>=0))")  # maybe we should creat ramToQuery also
         conn.execute("CREATE TABLE RamToDisk(Rid INTEGER ,\
                      Did INTEGER ,\
                      Rsize INTEGER,\
@@ -499,41 +499,50 @@ def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
     size = query.getSize()
     if (type(query) is not Query) or (type(Qid) is not int) or (type(size) is not int) or (type(diskID) is not int):
         return ReturnValue.BAD_PARAMS
-    
+    #elif (Qid <= 0) or (size < 0) or ()
+
     try:
         conn = Connector.DBConnector()
-        query = sql.SQL(f"BEGIN;UPDATE Disk SET Dspace=Dspace-{size} WHERE Disk.Did={diskID}\
-        INSERT INTO QueryToDisk(Qid, Did, Qsize) VALUES ({Qid}, {size}, {diskID})\
-        ;COMMIT;")
+        query = f"BEGIN;\
+        INSERT INTO QueryToDisk(Qid, Did, Qsize) VALUES ({Qid}, {diskID}, {size})\
+        ;UPDATE Disk SET Dspace=Dspace-{size} WHERE Disk.Did={diskID};"
         
         '''SELECT (Qid, Did, Dspace, sum(Qsize) as usedSpace)\
         FROM QueryToDisk INNER JOIN Disk ON (Disk.Did = QueryToDisk.Did)\
         WHERE usedSpace+{size} <= Dspace\
         GROUP BY Did")'''
         rows_effected, _ = conn.execute(query)
+        conn.commit()
+        conn.commit()
         if rows_effected == 0:
-            return BAD_PARAMS
+            return ReturnValue.NOT_EXISTS
+
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
+        conn.close()
         return ReturnValue.ERROR
     except DatabaseException.NOT_NULL_VIOLATION:
         conn.rollback()
+        conn.close()
         return ReturnValue.ERROR
     except DatabaseException.FOREIGN_KEY_VIOLATION:
         conn.rollback()
-        return ReturnValue.ERROR
+        conn.close()
+        return ReturnValue.NOT_EXISTS
     except DatabaseException.UNIQUE_VIOLATION:
         conn.rollback()
+        conn.close()
         return ReturnValue.ALREADY_EXISTS
     except DatabaseException.CHECK_VIOLATION:
         conn.rollback()
+        conn.close()
         return ReturnValue.BAD_PARAMS
-    except Exception:
+    except Exception as e:
         conn.rollback()
         return ReturnValue.ERROR
-    finally:
-        conn.close()
-        return ReturnValue.OK
+
+    conn.close()
+    return ReturnValue.OK
 
 
 def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
@@ -544,8 +553,15 @@ def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
         
     try:
         conn = Connector.DBConnector()
-        query = sql.SQL(f"DELETE FROM QueryToDisk WHERE (Qid={Qid} AND  Did = {diskID})") #TODO: reduce Qsize from Disk freespace
+        query = f"BEGIN;UPDATE Disk SET Dspace=Dspace+{query.getSize()} WHERE Did={diskID}; \
+                DELETE FROM QueryToDisk WHERE (Qid={Qid} AND  Did = {diskID});"
         rows_effected, _ = conn.execute(query)
+        if rows_effected == 0:
+            conn.rollback()
+            return ReturnValue.OK
+        conn.commit()
+
+        res = get_rows("SELECT * FROM Disk")
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
         return ReturnValue.ERROR
@@ -561,12 +577,12 @@ def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
     except DatabaseException.CHECK_VIOLATION:
         conn.rollback()
         return ReturnValue.BAD_PARAMS
-    except Exception:
+    except Exception as e:
         conn.rollback()
         return ReturnValue.ERROR
-    finally:
-        conn.close()
-        return ReturnValue.OK
+
+    conn.close()
+    return ReturnValue.OK
 
 def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
     if (type(query) is not Query) or (type(Qid) is not int) or (type(diskID) is not int):
