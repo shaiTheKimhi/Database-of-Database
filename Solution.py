@@ -33,8 +33,11 @@ def activate(query, kind='delete'):
         conn.close()
         return ReturnValue.ERROR
     except Exception:
-        conn.rollback()
-        conn.close()
+        try:
+            conn.rollback()
+            conn.close()
+        except:
+            nop = 0 #no operation here
         return ReturnValue.ERROR
     finally:
         if row_effected == 0:
@@ -47,14 +50,33 @@ def aggregate(query):
         conn = Connector.DBConnector()
         rows_effected, output = conn.execute(query)
     except Exception:
-        conn.rollback()
-        conn.close()
-        return -1
+        try:
+            conn.rollback()
+            conn.close()
+        except:
+            nop = 0 #no operation here
+        return -1 #error value
     finally:
         if row_effected == 0:
-            return 0
+            return 0  #default value
         conn.close()
         return output
+        
+        
+def get_rows(query, default_value, error_value):
+    try:
+        conn = Connector.DBConnector()
+        rows_effected, output = conn.execute(query)
+    except Exception:
+        try:
+            conn.rollback()
+            conn.close()
+        except:
+            nop = 0 #no operation here
+        return error_value #error value
+    finally:
+        return output
+    
 
 
 # maybe we should replace the prints at the expects
@@ -71,27 +93,30 @@ def createTables():
                      company TEXT NOT NULL,\
                      Speed INTEGER NOT NULL, \
                      Cost INTEGER NOT NULL,\
+                     Dspace INTEGER NOT NULL\
                      check (Did>0),\
                      check(Speed>0),\
-                     check (Cost>0));")
+                     check (Cost>0));\
+                     check (Dspace>=0)")
         conn.execute("CREATE TABLE Ram(Rid INTEGER PRIMARY KEY,\
                      Company TEXT NOT NULL, \
                      Rspace INTEGER NOT NULL,\
                      check(Rid>0),\
-                     check (Rspace>0));")
+                     check (Rspace>0));") #TODO: CHECK if Did is PRIMARY KEY OR NOT
         conn.execute("CREATE TABLE QueryToDisk(Qid INTEGER PRIMARY KEY ,\
-                     Did INTEGER ,\
+                     Did INTEGER PRIMARY KEY,\
                      Qsize INTEGER NOT NULL,\
                      FOREIGN KEY (Qid) REFERENCES Queries(Qid) ON DELETE CASCADE ,\
                      FOREIGN KEY(Did) REFERENCES Disk(Did) ON DELETE CASCADE,\
                      check(Qsize>0);")  # maybe we should creat ramToQuery also
         conn.execute("CREATE TABLE RamToDisk(Rid INTEGER PRIMARY KEY ,\
-                     Did INTEGER,\
+                     Did INTEGER PRIMARY KEY,\
                      Rsize INTEGER\
                      FOREIGN KEY (Did) REFERENCES Disk(Did) ON DELETE CASCADE ,\
                      FOREIGN KEY(Rid) REFERENCES Ram(Rid) ON DELETE CASCADE,\
                      check(Rsize>0);")
         conn.commit()
+        conn.close()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
     except DatabaseException.NOT_NULL_VIOLATION as e:
@@ -104,8 +129,6 @@ def createTables():
         print(e)
     except Exception as e:
         print(e)
-    finally:
-        conn.close()
 
 
 def clearTables():
@@ -192,7 +215,8 @@ def getQueryProfile(queryID: int) -> Query:
         if rows_effected == 0:
             return Query.badQuery()
         conn.close()
-        return result
+        return Query.Query(result)
+        #return result
 
 
 # need to complete and change the query
@@ -203,7 +227,9 @@ def deleteQuery(query: Query) -> ReturnValue:
         conn = Connector.DBConnector()
         Id = query.getQueryID()
         #Using Cascade this query should delete all appearances of Query including in 
-        query = sql.SQL("BEGIN;DELETE FROM Queries WHERE Qid={Id};COMMIT").format(Qid=sql.Literal(Id))
+        query = f"BEGIN;DELETE FROM Queries WHERE Qid={Id};\
+        UPDATE Disk SET Disk.Dspace = Disk.Dspace - t2.QuerySize FROM (Disk INNER JOIN QueryToDisk ON Disk.Did=QueryToDisk.Did) WHERE QueryToDisk.Qid={Id};\
+        COMMIT") #automatically deletes from QueryToDisk and so we only remain to add removed values to Dspace at Disk
         rows_effected, _ = conn.execute(query)
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
@@ -295,7 +321,8 @@ def getDiskProfile(diskID: int) -> Disk:
         if rows_effected == 0:
             return Disk.badDisk()
         conn.close()
-        return result
+        #return result
+        return Disk.Disk(result)
 
 
 def deleteDisk(diskID: int) -> ReturnValue:
@@ -379,8 +406,8 @@ def getRAMProfile(ramID: int) -> RAM:
         if rows_effected == 0:
             return RAM.badRAM()
         conn.close()
-        return result
-
+        #return result
+        return RAM.RAM(result)
 
 def deleteRAM(ramID: int) -> ReturnValue:
     conn = None
@@ -461,11 +488,14 @@ def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
     
     try:
         conn = Connector.DBConnector()
-        query = sql.SQL(f"INSERT INTO QueryToDisk(Qid, Did, Qsize) VALUES ({Qid}, {size}, {diskID})\
-        SELECT (Qid, Did, Dspace, sum(Qsize) as usedSpace)\
+        query = sql.SQL(f"BEGIN;UPDATE Disk SET Dspace=Dspace-{size} WHERE Disk.Did={diskID}\
+        INSERT INTO QueryToDisk(Qid, Did, Qsize) VALUES ({Qid}, {size}, {diskID})\
+        ;COMMIT;")
+        
+        '''SELECT (Qid, Did, Dspace, sum(Qsize) as usedSpace)\
         FROM QueryToDisk INNER JOIN Disk ON (Disk.Did = QueryToDisk.Did)\
         WHERE usedSpace+{size} <= Dspace\
-        GROUP BY Did")
+        GROUP BY Did")'''
         rows_effected, _ = conn.execute(query)
         if row_effected == 0:
             return BAD_PARAMS
@@ -500,7 +530,7 @@ def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
         
     try:
         conn = Connector.DBConnector()
-        query = sql.SQL(f"DELETE FROM QueryToDisk WHERE (Qid={Qid} AND  Did = {diskID})")
+        query = sql.SQL(f"DELETE FROM QueryToDisk WHERE (Qid={Qid} AND  Did = {diskID})") #TODO: reduce Qsize from Disk freespace
         rows_effected, _ = conn.execute(query)
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
@@ -539,23 +569,27 @@ def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
 
 
 def averageSizeQueriesOnDisk(diskID: int) -> float:
-    return aggregate(f"SELECT avg(Qsize) FROM QueryToDisk WHERE (Did={diskID}) GROUP_BY Did")
+    return aggregate(f"SELECT AVG(Qsize) FROM QueryToDisk WHERE (Did={diskID}) GROUP_BY Did")
 
 
 def diskTotalRAM(diskID: int) -> int:
-    return aggregate(f"SELECT sum(Rsize) FROM RamToDisk WHERE (Did={diskID}) GROUP_BY Did")
+    return aggregate(f"SELECT SUM(Rsize) FROM RamToDisk WHERE (Did={diskID}) GROUP_BY Did")
 
 
 def getCostForPurpose(purpose: str) -> int:
-    return 0
+    return aggregate(f"SELECT SUM(money) as total_cost FROM \
+    (SELECT Disk.Cost*Queries.Qsize FROM (Queries INNER JOIN QueryToDisk ON Queries.Qid=QueryToDisk.Qid) \
+    INNER JOIN Disk ON QueryToDisk.Did=Disk.Did WHERE Queries.Purpose={purpose})")
 
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
-    return []
+    return list(get_rows(f"SELECT TOP 5 Queries.Qid FROM Queries WHERE Queries.QSize <= \
+    (SELECT Disk.Dspace WHERE Disk.Did={diskID});"))
 
 
 def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
-    return []
+    return list(get_rows(f"SELECT TOP 5 Queries.Qid FROM Queries WHERE (Queries.QSize <= \
+    (SELECT Disk.Dspace WHERE Disk.Did={diskID}) AND Queries.QSize <= (SELECT SUM(RamToDisk.Rsize) FROM RamToDisk WHERE RamToDisk.Did={diskID}));"))
 
 
 def isCompanyExclusive(diskID: int) -> bool:

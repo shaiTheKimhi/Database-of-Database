@@ -70,7 +70,7 @@ class DBConnector:
         try:
             # Obtain the configuration parameters
             params = DBConnector.__config()
-            self.connection = psycopg2.connect(**params)
+            self.connection = psycopg2.connect(**params)            
             self.connection.autocommit = False
             self.cursor = self.connection.cursor()
         except Exception as e:
