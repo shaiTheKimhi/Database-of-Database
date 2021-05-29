@@ -27,12 +27,12 @@ def activate(query, kind='delete'):
     except DatabaseException.UNIQUE_VIOLATION:
         conn.rollback()
         conn.close()
-        return ReturnValue.ERROR
+        return ReturnValue.ALREADY_EXISTS if kind != 'delete' else ReturnValue.ERROR
     except DatabaseException.CHECK_VIOLATION:
         conn.rollback()
         conn.close()
         return ReturnValue.ERROR
-    except Exception:
+    except Exception as e:
         try:
             conn.rollback()
             conn.close()
@@ -42,6 +42,7 @@ def activate(query, kind='delete'):
 
     if rows_effected == 0:
         return ReturnValue.NOT_EXISTS if kind == 'delete' else ReturnValue.OK
+    conn.commit()
     conn.close()
     return ReturnValue.OK
         
@@ -49,7 +50,8 @@ def aggregate(query):
     try:
         conn = Connector.DBConnector()
         rows_effected, output = conn.execute(query)
-    except Exception:
+    except Exception as e:
+        print(str(e))
         try:
             conn.rollback()
             conn.close()
@@ -60,21 +62,24 @@ def aggregate(query):
     if rows_effected == 0:
         return 0  #default value
     conn.close()
-    return output.rows[0]
+    return output.rows[0][0]
         
         
 def get_rows(query, default_value=[], error_value=[]):
     try:
         conn = Connector.DBConnector()
         rows_effected, output = conn.execute(query)
-    except Exception:
+
+    except Exception as e:
+        print(str(e))
         try:
             conn.rollback()
             conn.close()
         except:
             nop = 0 #no operation here
-        return error_value #error value
-
+        return error_value, -1 #error value
+    if rows_effected == 0:
+        return default_value, -1
     return output.rows, rows_effected
     
 
@@ -112,11 +117,9 @@ def createTables():
                      check (Qsize>=0))")  # maybe we should creat ramToQuery also
         conn.execute("CREATE TABLE RamToDisk(Rid INTEGER ,\
                      Did INTEGER ,\
-                     Rsize INTEGER,\
                      CONSTRAINT descriptor PRIMARY KEY (Rid, Did), \
                      FOREIGN KEY (Did) REFERENCES Disk(Did) ON DELETE CASCADE ,\
-                     FOREIGN KEY(Rid) REFERENCES Ram(Rid) ON DELETE CASCADE,\
-                     check (Rsize>0))")
+                     FOREIGN KEY(Rid) REFERENCES Ram(Rid) ON DELETE CASCADE)")
         conn.commit()
         conn.close()
     except DatabaseException.ConnectionInvalid as e:
@@ -561,7 +564,6 @@ def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
             return ReturnValue.OK
         conn.commit()
 
-        res = get_rows("SELECT * FROM Disk")
     except DatabaseException.ConnectionInvalid:
         conn.rollback()
         return ReturnValue.ERROR
@@ -585,14 +587,14 @@ def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
     return ReturnValue.OK
 
 def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
-    if (type(query) is not Query) or (type(Qid) is not int) or (type(diskID) is not int):
+    if (type(ramID) is not int) or (type(diskID) is not int):
         return ReturnValue.BAD_PARAMS
         
-    return activate(f"INSERT INTO RamToDisk(Rid, Qid) VALUES ({ramID}, {diskID})")
+    return activate(f"INSERT INTO RamToDisk(Rid, Did) VALUES ({ramID}, {diskID})", "insert")
 
 
 def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
-    if (type(query) is not Query) or (type(Qid) is not int) or (type(diskID) is not int):
+    if (type(ramID) is not int) or (type(diskID) is not int):
         return ReturnValue.BAD_PARAMS
         
     return activate(f"DELETE FROM RamToDisk WHERE (Rid={ramID} And Did={diskID})")
@@ -603,51 +605,62 @@ def averageSizeQueriesOnDisk(diskID: int) -> float:
 
 
 def diskTotalRAM(diskID: int) -> int:
-    return aggregate(f"SELECT SUM(Rsize) FROM RamToDisk WHERE (Did={diskID}) GROUP BY Did")
+    return aggregate(f"SELECT SUM(Rspace) FROM RamToDisk INNER JOIN RAM ON RamToDisk.Rid=RAM.Rid WHERE (Did={diskID}) GROUP BY Did")
 
 
 def getCostForPurpose(purpose: str) -> int:
-    return aggregate(f"SELECT SUM(money) as total_cost FROM \
-    (SELECT Disk.Cost*Queries.Qsize FROM (Queries INNER JOIN QueryToDisk ON Queries.Qid=QueryToDisk.Qid) \
-    INNER JOIN Disk ON QueryToDisk.Did=Disk.Did WHERE Queries.Purpose={purpose})")
+    return aggregate(f"SELECT COALESCE(SUM(fo.money),0) as total_cost FROM \
+    (SELECT Disk.Cost*Queries.Qsize as money FROM (Queries INNER JOIN QueryToDisk ON Queries.Qid=QueryToDisk.Qid) \
+    INNER JOIN Disk ON QueryToDisk.Did=Disk.Did WHERE Queries.Purpose='{purpose}') AS fo")
 
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
-    return list(get_rows(f"SELECT TOP 5 Queries.Qid FROM Queries WHERE Queries.QSize <= \
-    (SELECT Disk.Dspace WHERE Disk.Did={diskID});")[0])
+    return list([item[0] for item in get_rows(f"SELECT Queries.Qid FROM Queries WHERE Queries.QSize <= \
+    (SELECT Dspace FROM Disk WHERE Did={diskID}) ORDER BY Queries.Qid DESC LIMIT 5;")[0]])
 
 
 def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
-    return list(get_rows(f"SELECT TOP 5 Queries.Qid FROM Queries WHERE (Queries.QSize <= \
-    (SELECT Disk.Dspace WHERE Disk.Did={diskID}) AND Queries.QSize <= (SELECT SUM(RamToDisk.Rsize) FROM RamToDisk WHERE RamToDisk.Did={diskID}))  ORDER BY Queries.Qid;")[0])
+    return list([item[0] for item in get_rows(f"SELECT Queries.Qid FROM Queries WHERE (Queries.QSize <= \
+    (SELECT Dspace FROM Disk WHERE Did={diskID}) AND Queries.QSize <= (SELECT COALESCE(SUM(Rspace),0) FROM RamToDisk INNER JOIN RAM ON RamToDisk.Rid=RAM.Rid WHERE RamToDisk.Did={diskID}))  ORDER BY Queries.Qid LIMIT 5;")[0]])
 
 
 def isCompanyExclusive(diskID: int) -> bool: 
-    query = f"SELECT * FROM ((Disk INNER JOIN RamToDisk ON Disk.Did=RamToDisk.Did) INNER JOIN RAM ON RamToDisk.Rid=RAM.Rid) WHERE RAM.Company != Disk.Company AND Disk.Did={diskID}"
+    #query = f"SELECT * FROM ((Disk INNER JOIN RamToDisk ON Disk.Did=RamToDisk.Did) INNER JOIN RAM ON RamToDisk.Rid=RAM.Rid) WHERE RAM.Company != Disk.Company AND Disk.Did={diskID}"
+    query = f"SELECT * FROM Disk WHERE "
     return get_rows(query)[1] == 0 #company of Disk is exlusive iff all of the RAMs attached to it are of the same company i.e there are no RAMs of different company.
 
 
 def getConflictingDisks() -> List[int]:
-    query = "SELECT DISTINCT Did FROM QueryToDisk WHERE Qid IN (SELECT Qid,COUNT(Qid) AS cn FROM QueryToDisk GROUP BY Qid HAVING cn > 1)"
-    return list(get_rows(query)[0])
+    query = "SELECT DISTINCT Did FROM QueryToDisk WHERE QueryToDisk.Qid IN (SELECT Qid FROM QueryToDisk GROUP BY Qid HAVING COUNT(Qid) > 1) ORDER BY Did"
+    rows = get_rows(query)[0]
+    res = list([i[0] for i in rows])
+    return res
 
 
 def mostAvailableDisks() -> List[int]:
     query = "SELECT Disk.Did FROM \
-    (SELECT TOP 5 Disk.Did, Disk.Speed, COUNT(Qid) AS cqid FROM (Disk, Queries)\
-    WHERE Queries.Qsize <= Disk.Dspace) GROUP BY Disk.Did ORDER BY cqid DESC, Disk.Speed DESC, Disk.Did"
-    return list(get_rows(query)[0])
+    (SELECT Disk.Did, Disk.Speed, COUNT(Qid) AS cqid FROM (Disk, Queries)\
+    WHERE Queries.Qsize <= Disk.Dspace GROUP BY Disk.Did ORDER BY cqid DESC, Disk.Speed DESC, Disk.Did) AS ava LIMIT 5"
+    return list([i[0] for i in get_rows(query)[0]])
 
 
 def getCloseQueries(queryID: int) -> List[int]:
-    query = f"SELECT TOP 10 Qid FROM \
-    (SELECT Queries.Qid, COUNT(Did) as cnt\
+    res = get_rows(f"(SELECT Did FROM QueryToDisk WHERE QueryToDisk.Qid={queryID})")
+
+    res = get_rows(f"(SELECT COUNT(Did) as c, Queries.Qid \
+    FROM Queries,QueryToDisk \
+    WHERE Queries.qid=QueryToDisk.qid AND Did IN (SELECT Did FROM QueryToDisk WHERE QueryToDisk.Qid={queryID})\
+    AND Queries.Qid != {queryID}\
+    GROUP BY Queries.Qid)")
+
+    query = f"SELECT Qid FROM \
+    (SELECT COUNT(Did) as c, Queries.Qid \
     FROM Queries INNER JOIN QueryToDisk ON Queries.Qid=QueryToDisk.Qid\
     WHERE Did IN (SELECT Did FROM QueryToDisk WHERE QueryToDisk.Qid={queryID})\
     AND Queries.Qid != {queryID}\
     GROUP BY Queries.Qid \
-    HAVING cnt >= (SELECT Count(Did) FROM QueryToDisk WHERE QueryToDisk.Qid={queryID}))\
-    ORDER BY Queries.Qid"
+    HAVING COUNT(Did) >= (SELECT Count(Did) FROM QueryToDisk WHERE QueryToDisk.Qid={queryID})) AS clo\
+    ORDER BY Qid LIMIT 10"
     return list(get_rows(query)[0])
     
     
