@@ -51,7 +51,6 @@ def aggregate(query):
         conn = Connector.DBConnector()
         rows_effected, output = conn.execute(query)
     except Exception as e:
-        print(str(e))
         try:
             conn.rollback()
             conn.close()
@@ -71,7 +70,6 @@ def get_rows(query, default_value=[], error_value=[]):
         rows_effected, output = conn.execute(query)
 
     except Exception as e:
-        print(str(e))
         try:
             conn.rollback()
             conn.close()
@@ -79,7 +77,7 @@ def get_rows(query, default_value=[], error_value=[]):
             nop = 0 #no operation here
         return error_value, -1 #error value
     if rows_effected == 0:
-        return default_value, -1
+        return default_value, 0
     return output.rows, rows_effected
     
 
@@ -626,8 +624,9 @@ def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
 
 def isCompanyExclusive(diskID: int) -> bool: 
     #query = f"SELECT * FROM ((Disk INNER JOIN RamToDisk ON Disk.Did=RamToDisk.Did) INNER JOIN RAM ON RamToDisk.Rid=RAM.Rid) WHERE RAM.Company != Disk.Company AND Disk.Did={diskID}"
-    query = f"SELECT * FROM Disk WHERE "
-    return get_rows(query)[1] == 0 #company of Disk is exlusive iff all of the RAMs attached to it are of the same company i.e there are no RAMs of different company.
+    query = f"SELECT * FROM Disk WHERE 0 = (SELECT count(*) FROM ((Disk INNER JOIN RamToDisk ON Disk.Did=RamToDisk.Did) INNER JOIN RAM ON RamToDisk.Rid=RAM.Rid) WHERE RAM.Company != Disk.Company AND Disk.Did={diskID})\
+     AND 1 <= (SELECT count(*) FROM Disk WHERE Did={diskID});"
+    return get_rows(query)[1] > 0 #company of Disk is exlusive iff all of the RAMs attached to it are of the same company i.e there are no RAMs of different company.
 
 
 def getConflictingDisks() -> List[int]:
@@ -638,9 +637,10 @@ def getConflictingDisks() -> List[int]:
 
 
 def mostAvailableDisks() -> List[int]:
-    query = "SELECT Disk.Did FROM \
-    (SELECT Disk.Did, Disk.Speed, COUNT(Qid) AS cqid FROM (Disk, Queries)\
-    WHERE Queries.Qsize <= Disk.Dspace GROUP BY Disk.Did ORDER BY cqid DESC, Disk.Speed DESC, Disk.Did) AS ava LIMIT 5"
+    query = "SELECT id FROM (\
+    SELECT COALESCE(Disk.Did,0) as id, COALESCE(Disk.Speed,0) as spd, COALESCE(ava.cqid,0) as cq \
+     FROM Disk LEFT JOIN(SELECT Did, Speed, COALESCE(COUNT(Qid),0) AS cqid FROM (Disk LEFT JOIN Queries ON TRUE ) \
+    WHERE Qsize <= Dspace GROUP BY Did ORDER BY cqid DESC, Speed DESC, Disk.Did)AS ava ON Disk.Did=ava.Did ORDER BY cq DESC, spd DESC, id LIMIT 5) as f2"
     return list([i[0] for i in get_rows(query)[0]])
 
 
